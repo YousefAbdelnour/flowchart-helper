@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.codex_tmp/
+
+build/
+dist/
+output/
+*.spec
+
+*.exe
+!release/
+!release/FlowchartHelper-1.0.0-Setup.exe
+
