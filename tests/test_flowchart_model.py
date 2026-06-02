@@ -9,6 +9,7 @@ from flowchart_model import (
     FlowNodeType,
     Step,
     StepType,
+    route_loop_edge,
     build_a4_paper_flow_layout,
     build_a4_paper_graph_layout,
     build_flow_layout,
@@ -196,6 +197,22 @@ class FlowLayoutTests(unittest.TestCase):
         self.assertLess(abs(nodes[wrap_edge.from_id].y - nodes[wrap_edge.to_id].y), 90)
         self.assertLess(nodes["step-1"].y, nodes["step-2"].y)
         self.assertGreater(nodes["step-7"].y, nodes["step-8"].y)
+
+    def test_a4_loop_route_stays_inside_the_page_bounds(self) -> None:
+        steps = [
+            Step(id=f"step-{index}", label=f"Step {index}", type=StepType.PROCESS)
+            for index in range(1, 10)
+        ]
+
+        layout = build_a4_paper_flow_layout(steps)
+        nodes = {node.id: node for node in layout.nodes}
+        points = route_loop_edge(nodes["step-7"], nodes["step-1"], layout)
+        page_left = nodes["step-7"].page_index * (layout.paper_width + layout.page_gap)
+        page_right = page_left + layout.paper_width
+
+        self.assertEqual(nodes["step-1"].page_index, nodes["step-7"].page_index)
+        self.assertGreaterEqual(min(x for x, _y in points), page_left + 24)
+        self.assertLessEqual(max(x for x, _y in points), page_right - 24)
 
     def test_a4_paper_graph_layout_wraps_imported_graph_ranks(self) -> None:
         nodes = [

@@ -22,6 +22,7 @@ from flowchart_model import (
     build_a4_paper_graph_layout,
     build_flow_layout,
     build_graph_layout,
+    route_loop_edge,
     sample_steps,
     wrap_node_text,
 )
@@ -43,8 +44,6 @@ LAYOUT_LABELS = {
     "Horizontal Strip": FlowDirection.LEFT_RIGHT,
     "Vertical Strip": FlowDirection.TOP_BOTTOM,
 }
-LOOP_OFFSET = 56
-
 
 @dataclass
 class StepRow:
@@ -352,7 +351,7 @@ class FlowchartApp:
             start_node = nodes_by_id.get(edge.from_id)
             end_node = nodes_by_id.get(edge.to_id)
             if start_node and end_node:
-                self._draw_edge(start_node, end_node, edge.label, edge.kind, zoom)
+                self._draw_edge(start_node, end_node, edge.label, edge.kind, layout, zoom)
 
         for node in layout.nodes:
             self._draw_node(node, zoom)
@@ -432,9 +431,17 @@ class FlowchartApp:
             justify="center",
         )
 
-    def _draw_edge(self, start_node: NodeLayout, end_node: NodeLayout, label: str, kind: EdgeKind, zoom: float) -> None:
+    def _draw_edge(
+        self,
+        start_node: NodeLayout,
+        end_node: NodeLayout,
+        label: str,
+        kind: EdgeKind,
+        layout: FlowLayout,
+        zoom: float,
+    ) -> None:
         if kind == EdgeKind.LOOP:
-            self._draw_loop_edge(start_node, end_node, label, zoom)
+            self._draw_loop_edge(start_node, end_node, label, layout, zoom)
             return
         start_x, start_y, end_x, end_y = self._edge_points(start_node, end_node, zoom)
         self.canvas.create_line(
@@ -457,31 +464,16 @@ class FlowchartApp:
                 font=("Segoe UI", max(8, int(9 * zoom))),
             )
 
-    def _draw_loop_edge(self, start_node: NodeLayout, end_node: NodeLayout, label: str, zoom: float) -> None:
-        if abs(end_node.y - start_node.y) >= abs(end_node.x - start_node.x):
-            offset_x = (min(start_node.left, end_node.left) - LOOP_OFFSET) * zoom
-            points = [
-                start_node.left * zoom,
-                start_node.y * zoom,
-                offset_x,
-                start_node.y * zoom,
-                offset_x,
-                end_node.y * zoom,
-                end_node.left * zoom,
-                end_node.y * zoom,
-            ]
-        else:
-            offset_y = (min(start_node.top, end_node.top) - LOOP_OFFSET) * zoom
-            points = [
-                start_node.x * zoom,
-                start_node.top * zoom,
-                start_node.x * zoom,
-                offset_y,
-                end_node.x * zoom,
-                offset_y,
-                end_node.x * zoom,
-                end_node.top * zoom,
-            ]
+    def _draw_loop_edge(
+        self,
+        start_node: NodeLayout,
+        end_node: NodeLayout,
+        label: str,
+        layout: FlowLayout,
+        zoom: float,
+    ) -> None:
+        loop_points = [(x * zoom, y * zoom) for x, y in route_loop_edge(start_node, end_node, layout)]
+        points = [coordinate for point in loop_points for coordinate in point]
         self.canvas.create_line(
             *points,
             fill="#676e73",
@@ -490,7 +482,9 @@ class FlowchartApp:
             arrowshape=(12 * zoom, 14 * zoom, 5 * zoom),
         )
         if label:
-            label_x, label_y = self._edge_label_position(points[0], points[1], points[2], points[3], zoom)
+            label_start_x, label_start_y = loop_points[1]
+            label_end_x, label_end_y = loop_points[2]
+            label_x, label_y = self._edge_label_position(label_start_x, label_start_y, label_end_x, label_end_y, zoom)
             self.canvas.create_text(
                 label_x,
                 label_y,

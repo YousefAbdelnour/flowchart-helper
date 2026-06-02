@@ -199,6 +199,58 @@ A4_MARGIN_BOTTOM = 54.0
 A4_COLUMN_COUNT = 3
 A4_ROW_GAP = 38.0
 A4_GROUP_GAP = 34.0
+LOOP_ROUTE_OFFSET = 56.0
+LOOP_ROUTE_PAGE_PADDING = 24.0
+
+
+def route_loop_edge(
+    start_node: NodeLayout,
+    end_node: NodeLayout,
+    layout: FlowLayout | None = None,
+) -> list[tuple[float, float]]:
+    if abs(end_node.y - start_node.y) >= abs(end_node.x - start_node.x):
+        offset_x = min(start_node.left, end_node.left) - LOOP_ROUTE_OFFSET
+        page_bounds = _same_page_bounds(start_node, end_node, layout)
+        if page_bounds:
+            page_left, _page_top, page_right, _page_bottom = page_bounds
+            offset_x = _clamp(offset_x, page_left + LOOP_ROUTE_PAGE_PADDING, page_right - LOOP_ROUTE_PAGE_PADDING)
+        return [
+            (start_node.left, start_node.y),
+            (offset_x, start_node.y),
+            (offset_x, end_node.y),
+            (end_node.left, end_node.y),
+        ]
+
+    offset_y = min(start_node.top, end_node.top) - LOOP_ROUTE_OFFSET
+    page_bounds = _same_page_bounds(start_node, end_node, layout)
+    if page_bounds:
+        _page_left, page_top, _page_right, page_bottom = page_bounds
+        offset_y = _clamp(offset_y, page_top + LOOP_ROUTE_PAGE_PADDING, page_bottom - LOOP_ROUTE_PAGE_PADDING)
+    return [
+        (start_node.x, start_node.top),
+        (start_node.x, offset_y),
+        (end_node.x, offset_y),
+        (end_node.x, end_node.top),
+    ]
+
+
+def _same_page_bounds(
+    start_node: NodeLayout,
+    end_node: NodeLayout,
+    layout: FlowLayout | None,
+) -> tuple[float, float, float, float] | None:
+    if not layout or not layout.paper_width or not layout.paper_height:
+        return None
+    if start_node.page_index != end_node.page_index:
+        return None
+    page_left = start_node.page_index * (layout.paper_width + layout.page_gap)
+    return page_left, 0.0, page_left + layout.paper_width, layout.paper_height
+
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    if minimum > maximum:
+        return value
+    return max(minimum, min(maximum, value))
 
 
 def sample_steps() -> list[Step]:

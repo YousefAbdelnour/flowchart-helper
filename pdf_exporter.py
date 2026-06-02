@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from math import atan2, cos, pi, sin
 from pathlib import Path
 
-from flowchart_model import EdgeKind, FlowLayout, NodeLayout, SHAPE_DEFINITIONS, wrap_node_text
+from flowchart_model import EdgeKind, FlowLayout, NodeLayout, SHAPE_DEFINITIONS, route_loop_edge, wrap_node_text
 
 
 A4_PORTRAIT = (595.0, 842.0)
@@ -16,7 +16,6 @@ PRINT_TARGET_SCALE = 0.85
 MIN_READABLE_SCALE = 0.72
 VIEWPORT_OVERLAP = 80.0
 CHART_PADDING = 28.0
-LOOP_OFFSET = 56.0
 
 
 @dataclass(frozen=True)
@@ -220,8 +219,8 @@ def _page_commands(
     for edge in layout.edges:
         start_node = nodes_by_id.get(edge.from_id)
         end_node = nodes_by_id.get(edge.to_id)
-        if start_node and end_node and _bounds_intersect(_edge_bounds(start_node, end_node, edge.kind), viewport):
-            _draw_edge(commands, start_node, end_node, edge.label, edge.kind, transform)
+        if start_node and end_node and _bounds_intersect(_edge_bounds(start_node, end_node, edge.kind, layout), viewport):
+            _draw_edge(commands, start_node, end_node, edge.label, edge.kind, layout, transform)
 
     for node in layout.nodes:
         if _bounds_intersect(_node_bounds(node), viewport):
@@ -326,10 +325,11 @@ def _draw_edge(
     end_node: NodeLayout,
     label: str,
     kind: EdgeKind,
+    layout: FlowLayout,
     transform: PdfTransform,
 ) -> None:
     if kind == EdgeKind.LOOP:
-        _draw_loop_edge(commands, start_node, end_node, label, transform)
+        _draw_loop_edge(commands, start_node, end_node, label, layout, transform)
         return
     layout_start_x, layout_start_y, layout_end_x, layout_end_y = _edge_points_layout(start_node, end_node)
     start_x, start_y = transform.point(layout_start_x, layout_start_y)
@@ -350,9 +350,10 @@ def _draw_loop_edge(
     start_node: NodeLayout,
     end_node: NodeLayout,
     label: str,
+    layout: FlowLayout,
     transform: PdfTransform,
 ) -> None:
-    layout_points = _loop_points_layout(start_node, end_node)
+    layout_points = _loop_points_layout(start_node, end_node, layout)
     points = [transform.point(x, y) for x, y in layout_points]
 
     commands.append("0.42 0.46 0.48 RG 1.15 w")
@@ -361,8 +362,8 @@ def _draw_loop_edge(
     end_x, end_y = points[-1]
     commands.append(_arrowhead_path(start_x, start_y, end_x, end_y))
     if label:
-        label_start_x, label_start_y = points[0]
-        label_end_x, label_end_y = points[1]
+        label_start_x, label_start_y = points[1]
+        label_end_x, label_end_y = points[2]
         font_size = max(8.0, 10 * transform.scale)
         label_x, label_y = edge_label_anchor(label_start_x, label_start_y, label_end_x, label_end_y, label, font_size)
         commands.append("0.18 0.22 0.25 rg")
@@ -388,22 +389,12 @@ def _edge_points_layout(
     return start_x, start_y, end_x, end_y
 
 
-def _loop_points_layout(start_node: NodeLayout, end_node: NodeLayout) -> list[tuple[float, float]]:
-    if abs(end_node.y - start_node.y) >= abs(end_node.x - start_node.x):
-        offset_x = min(start_node.left, end_node.left) - LOOP_OFFSET
-        return [
-            (start_node.left, start_node.y),
-            (offset_x, start_node.y),
-            (offset_x, end_node.y),
-            (end_node.left, end_node.y),
-        ]
-    offset_y = min(start_node.top, end_node.top) - LOOP_OFFSET
-    return [
-        (start_node.x, start_node.top),
-        (start_node.x, offset_y),
-        (end_node.x, offset_y),
-        (end_node.x, end_node.top),
-    ]
+def _loop_points_layout(
+    start_node: NodeLayout,
+    end_node: NodeLayout,
+    layout: FlowLayout | None = None,
+) -> list[tuple[float, float]]:
+    return route_loop_edge(start_node, end_node, layout)
 
 
 def _centered_multiline_text(text: str, center_x: float, center_y: float, font_size: float) -> str:
@@ -439,7 +430,7 @@ def _chart_bounds(layout: FlowLayout) -> ChartBounds:
         end_node = nodes_by_id.get(edge.to_id)
         if not start_node or not end_node:
             continue
-        points = _loop_points_layout(start_node, end_node) if edge.kind == EdgeKind.LOOP else [
+        points = _loop_points_layout(start_node, end_node, layout) if edge.kind == EdgeKind.LOOP else [
             _edge_points_layout(start_node, end_node)[:2],
             _edge_points_layout(start_node, end_node)[2:],
         ]
@@ -485,8 +476,8 @@ def _node_bounds(node: NodeLayout) -> ChartBounds:
     return ChartBounds(node.left, node.top, node.right, node.bottom)
 
 
-def _edge_bounds(start_node: NodeLayout, end_node: NodeLayout, kind: EdgeKind) -> ChartBounds:
-    points = _loop_points_layout(start_node, end_node)
+def _edge_bounds(start_node: NodeLayout, end_node: NodeLayout, kind: EdgeKind, layout: FlowLayout | None = None) -> ChartBounds:
+    points = _loop_points_layout(start_node, end_node, layout)
     if kind != EdgeKind.LOOP:
         start_x, start_y, end_x, end_y = _edge_points_layout(start_node, end_node)
         points = [(start_x, start_y), (end_x, end_y)]
