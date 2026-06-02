@@ -1,6 +1,7 @@
 import unittest
 
 from flowchart_model import (
+    EdgeKind,
     SHAPE_DEFINITIONS,
     FlowDirection,
     FlowEdge,
@@ -213,6 +214,47 @@ class FlowLayoutTests(unittest.TestCase):
         self.assertEqual(nodes["step-1"].page_index, nodes["step-7"].page_index)
         self.assertGreaterEqual(min(x for x, _y in points), page_left + 24)
         self.assertLessEqual(max(x for x, _y in points), page_right - 24)
+
+    def test_a4_loop_route_uses_printable_margin_for_separation_graph(self) -> None:
+        graph = FlowGraph(
+            title="Separation of a Mixture",
+            nodes=[
+                FlowNode(id="start", type=FlowNodeType.START, text="Start"),
+                FlowNode(id="weigh_mixture", type=FlowNodeType.PROCESS, text="Weigh mixture"),
+                FlowNode(id="remove_iron", type=FlowNodeType.PROCESS, text="Remove iron with magnet"),
+                FlowNode(id="sublime_naphthalene", type=FlowNodeType.PROCESS, text="Sublime naphthalene using hot water bath and cold finger"),
+                FlowNode(id="collect_naphthalene", type=FlowNodeType.PROCESS, text="Collect and weigh naphthalene crystals"),
+                FlowNode(id="separate_sand_plastic", type=FlowNodeType.PROCESS, text="Add water to separate floating plastic from sinking sand"),
+                FlowNode(id="filter_plastic", type=FlowNodeType.PROCESS, text="Vacuum filter, dry, and weigh plastic"),
+                FlowNode(id="dry_sand", type=FlowNodeType.PROCESS, text="Dry and weigh sand"),
+                FlowNode(id="all_separated", type=FlowNodeType.DECISION, text="All components separated?"),
+                FlowNode(id="cleanup", type=FlowNodeType.ACTION, text="Clean apparatus and dispose of waste"),
+                FlowNode(id="repeat_separation", type=FlowNodeType.ACTION, text="Repeat separation if needed"),
+                FlowNode(id="end", type=FlowNodeType.END, text="End"),
+            ],
+            edges=[
+                FlowEdge(id="e1", from_id="start", to_id="weigh_mixture"),
+                FlowEdge(id="e2", from_id="weigh_mixture", to_id="remove_iron"),
+                FlowEdge(id="e3", from_id="remove_iron", to_id="sublime_naphthalene"),
+                FlowEdge(id="e4", from_id="sublime_naphthalene", to_id="collect_naphthalene"),
+                FlowEdge(id="e5", from_id="collect_naphthalene", to_id="separate_sand_plastic"),
+                FlowEdge(id="e6", from_id="separate_sand_plastic", to_id="filter_plastic"),
+                FlowEdge(id="e7", from_id="filter_plastic", to_id="dry_sand"),
+                FlowEdge(id="e8", from_id="dry_sand", to_id="all_separated"),
+                FlowEdge(id="e9", from_id="all_separated", to_id="cleanup", label="Yes", kind=EdgeKind.YES),
+                FlowEdge(id="e10", from_id="all_separated", to_id="repeat_separation", label="No", kind=EdgeKind.NO),
+                FlowEdge(id="e11", from_id="repeat_separation", to_id="separate_sand_plastic", kind=EdgeKind.LOOP),
+                FlowEdge(id="e12", from_id="cleanup", to_id="end"),
+            ],
+            direction=FlowDirection.TOP_BOTTOM,
+        )
+
+        layout = build_a4_paper_graph_layout(graph)
+        nodes = {node.id: node for node in layout.nodes}
+        points = route_loop_edge(nodes["repeat_separation"], nodes["separate_sand_plastic"], layout)
+        page_left = nodes["repeat_separation"].page_index * (layout.paper_width + layout.page_gap)
+
+        self.assertGreaterEqual(min(x for x, _y in points), page_left + 36)
 
     def test_a4_paper_graph_layout_wraps_imported_graph_ranks(self) -> None:
         nodes = [

@@ -35,6 +35,47 @@ LAB_GRAPH_JSON = """
 }
 """
 
+SEPARATION_GRAPH_JSON = """
+{
+  "version": "1.0",
+  "title": "Separation of a Mixture",
+  "nodes": [
+    { "id": "start", "type": "start", "text": "Start" },
+    { "id": "weigh_mixture", "type": "process", "text": "Weigh mixture" },
+    { "id": "remove_iron", "type": "process", "text": "Remove iron with magnet" },
+    { "id": "sublime_naphthalene", "type": "process", "text": "Sublime naphthalene using hot water bath and cold finger" },
+    { "id": "collect_naphthalene", "type": "process", "text": "Collect and weigh naphthalene crystals" },
+    { "id": "separate_sand_plastic", "type": "process", "text": "Add water to separate floating plastic from sinking sand" },
+    { "id": "filter_plastic", "type": "process", "text": "Vacuum filter, dry, and weigh plastic" },
+    { "id": "dry_sand", "type": "process", "text": "Dry and weigh sand" },
+    { "id": "all_separated", "type": "decision", "text": "All components separated?" },
+    { "id": "cleanup", "type": "action", "text": "Clean apparatus and dispose of waste" },
+    { "id": "repeat_separation", "type": "action", "text": "Repeat separation if needed" },
+    { "id": "end", "type": "end", "text": "End" }
+  ],
+  "edges": [
+    { "id": "e1", "from": "start", "to": "weigh_mixture" },
+    { "id": "e2", "from": "weigh_mixture", "to": "remove_iron" },
+    { "id": "e3", "from": "remove_iron", "to": "sublime_naphthalene" },
+    { "id": "e4", "from": "sublime_naphthalene", "to": "collect_naphthalene" },
+    { "id": "e5", "from": "collect_naphthalene", "to": "separate_sand_plastic" },
+    { "id": "e6", "from": "separate_sand_plastic", "to": "filter_plastic" },
+    { "id": "e7", "from": "filter_plastic", "to": "dry_sand" },
+    { "id": "e8", "from": "dry_sand", "to": "all_separated" },
+    { "id": "e9", "from": "all_separated", "to": "cleanup", "label": "Yes", "type": "yes" },
+    { "id": "e10", "from": "all_separated", "to": "repeat_separation", "label": "No", "type": "no" },
+    { "id": "e11", "from": "repeat_separation", "to": "separate_sand_plastic", "type": "loop" },
+    { "id": "e12", "from": "cleanup", "to": "end" }
+  ],
+  "settings": {
+    "direction": "TB",
+    "autoLayout": true,
+    "showEdgeLabels": true,
+    "validateBeforeRender": true
+  }
+}
+"""
+
 
 class GraphJsonImporterTests(unittest.TestCase):
     def test_parses_node_edge_graph_with_direction_and_edge_types(self) -> None:
@@ -122,6 +163,12 @@ class GraphJsonImporterTests(unittest.TestCase):
         parsed = parse_flowchart_json(suspicious_json)
 
         self.assertIn("FLOW_009", [issue.code for issue in parsed.warning_issues])
+
+    def test_unlabeled_loop_is_allowed_when_repeat_step_explains_it(self) -> None:
+        parsed = parse_flowchart_json(SEPARATION_GRAPH_JSON)
+
+        self.assertEqual(parsed.error_issues, [])
+        self.assertNotIn("FLOW_012", [issue.code for issue in parsed.warning_issues])
 
 
 if __name__ == "__main__":

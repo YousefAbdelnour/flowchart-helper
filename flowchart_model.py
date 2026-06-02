@@ -200,7 +200,7 @@ A4_COLUMN_COUNT = 3
 A4_ROW_GAP = 38.0
 A4_GROUP_GAP = 34.0
 LOOP_ROUTE_OFFSET = 56.0
-LOOP_ROUTE_PAGE_PADDING = 24.0
+LOOP_ROUTE_PAGE_PADDING = A4_MARGIN_X
 
 
 def route_loop_edge(
@@ -529,11 +529,6 @@ def validate_graph(graph: FlowGraph) -> list[ValidationIssue]:
             continue
         outgoing.setdefault(edge.from_id, []).append(edge)
         incoming.setdefault(edge.to_id, []).append(edge)
-        if edge.kind == EdgeKind.LOOP and not edge.label:
-            issues.append(
-                _issue("FLOW_012", "warning", f'Loop edge "{edge.id}" should have a label.', edge_id=edge.id)
-            )
-
     starts = [node for node in graph.nodes if node.type == FlowNodeType.START]
     ends = [node for node in graph.nodes if node.type == FlowNodeType.END]
     if len(starts) != 1:
