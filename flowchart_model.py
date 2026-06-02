@@ -198,7 +198,6 @@ A4_MARGIN_TOP = 84.0
 A4_MARGIN_BOTTOM = 54.0
 A4_COLUMN_COUNT = 3
 A4_ROW_GAP = 38.0
-A4_GROUP_GAP = 34.0
 LOOP_ROUTE_OFFSET = 56.0
 LOOP_ROUTE_PAGE_PADDING = A4_MARGIN_X
 
@@ -208,6 +207,17 @@ def route_loop_edge(
     end_node: NodeLayout,
     layout: FlowLayout | None = None,
 ) -> list[tuple[float, float]]:
+    gutter_x = _same_page_adjacent_lane_gutter_x(start_node, end_node, layout)
+    if gutter_x is not None:
+        start_x = start_node.left if gutter_x < start_node.x else start_node.right
+        end_x = end_node.left if gutter_x < end_node.x else end_node.right
+        return [
+            (start_x, start_node.y),
+            (gutter_x, start_node.y),
+            (gutter_x, end_node.y),
+            (end_x, end_node.y),
+        ]
+
     if abs(end_node.y - start_node.y) >= abs(end_node.x - start_node.x):
         offset_x = min(start_node.left, end_node.left) - LOOP_ROUTE_OFFSET
         page_bounds = _same_page_bounds(start_node, end_node, layout)
@@ -245,6 +255,31 @@ def _same_page_bounds(
         return None
     page_left = start_node.page_index * (layout.paper_width + layout.page_gap)
     return page_left, 0.0, page_left + layout.paper_width, layout.paper_height
+
+
+def _same_page_adjacent_lane_gutter_x(
+    start_node: NodeLayout,
+    end_node: NodeLayout,
+    layout: FlowLayout | None,
+) -> float | None:
+    if not layout or not layout.paper_width or start_node.page_index != end_node.page_index:
+        return None
+    start_column = _a4_node_column_index(start_node, layout)
+    end_column = _a4_node_column_index(end_node, layout)
+    if abs(start_column - end_column) != 1:
+        return None
+    if start_column > end_column:
+        return (end_node.right + start_node.left) / 2
+    return (start_node.right + end_node.left) / 2
+
+
+def _a4_node_column_index(node: NodeLayout, layout: FlowLayout) -> int:
+    page_left = node.page_index * (layout.paper_width + layout.page_gap)
+    centers = [
+        page_left + _a4_column_center(column_index)
+        for column_index in range(A4_COLUMN_COUNT)
+    ]
+    return min(range(A4_COLUMN_COUNT), key=lambda column_index: abs(node.x - centers[column_index]))
 
 
 def _clamp(value: float, minimum: float, maximum: float) -> float:
@@ -453,6 +488,7 @@ def build_a4_paper_graph_layout(graph: FlowGraph) -> FlowLayout:
         )
 
     ranks = _graph_ranks(graph)
+    loop_sources = {edge.from_id for edge in graph.edges if edge.kind == EdgeKind.LOOP}
     rank_groups: dict[int, list[FlowNode]] = {}
     for node in graph.nodes:
         rank_groups.setdefault(ranks.get(node.id, 0), []).append(node)
@@ -464,16 +500,20 @@ def build_a4_paper_graph_layout(graph: FlowGraph) -> FlowLayout:
 
     for rank in sorted(rank_groups):
         group = rank_groups[rank]
-        group_layouts = [_node_for_graph_node(node, x=0, y=0, lane=f"rank-{rank}") for node in group]
-        group_height = max(node.height for node in group_layouts)
-        if not _a4_fits(cursor, group_height, column_index):
-            page_index, column_index, cursor = _next_a4_column(page_index, column_index)
-        if not _a4_fits(cursor, group_height, column_index):
-            page_index, column_index, cursor = page_index + 1, 0, _a4_column_start(0)
+        group_layouts = _order_a4_rank_group(
+            [_node_for_graph_node(node, x=0, y=0, lane=f"rank-{rank}") for node in group],
+            loop_sources,
+        )
+        for group_chunk in _chunks(group_layouts, A4_COLUMN_COUNT):
+            group_height = max(node.height for node in group_chunk)
+            if not _a4_fits(cursor, group_height, column_index):
+                page_index, column_index, cursor = _next_a4_column(page_index, column_index)
+            if not _a4_fits(cursor, group_height, column_index):
+                page_index, column_index, cursor = page_index + 1, 0, _a4_column_start(0)
 
-        group_nodes = _position_a4_rank_group(group_layouts, page_index, column_index, cursor)
-        nodes.extend(group_nodes)
-        cursor = _a4_next_cursor(cursor, group_height, column_index)
+            group_nodes = _position_a4_rank_group(group_chunk, page_index, column_index, cursor)
+            nodes.extend(group_nodes)
+            cursor = _a4_next_cursor(cursor, group_height, column_index)
 
     page_count = max(node.page_index for node in nodes) + 1
     edges = [
@@ -679,17 +719,28 @@ def _position_a4_rank_group(
             )
         ]
 
-    group_width = sum(node.width for node in group_layouts) + (len(group_layouts) - 1) * A4_GROUP_GAP
-    start_x = _a4_page_left(page_index) + (A4_PAGE_WIDTH - group_width) / 2
+    start_column = min(column_index, A4_COLUMN_COUNT - len(group_layouts))
     y = _a4_node_center_y(cursor, max(node.height for node in group_layouts), column_index)
     positioned: list[NodeLayout] = []
-    current_x = start_x
-    for node in group_layouts:
+    for offset, node in enumerate(group_layouts):
+        target_column = start_column + offset
         positioned.append(
-            _copy_node_position(node, x=current_x + node.width / 2, y=y, page_index=page_index)
+            _copy_node_position(
+                node,
+                x=_a4_page_left(page_index) + _a4_column_center(target_column),
+                y=y,
+                page_index=page_index,
+            )
         )
-        current_x += node.width + A4_GROUP_GAP
     return positioned
+
+
+def _order_a4_rank_group(group_layouts: list[NodeLayout], loop_sources: set[str]) -> list[NodeLayout]:
+    return sorted(group_layouts, key=lambda node: (node.id not in loop_sources, group_layouts.index(node)))
+
+
+def _chunks(items: list[NodeLayout], size: int) -> list[list[NodeLayout]]:
+    return [items[index : index + size] for index in range(0, len(items), size)]
 
 
 def _copy_node_position(node: NodeLayout, x: float, y: float, page_index: int) -> NodeLayout:

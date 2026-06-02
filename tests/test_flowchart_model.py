@@ -253,8 +253,22 @@ class FlowLayoutTests(unittest.TestCase):
         nodes = {node.id: node for node in layout.nodes}
         points = route_loop_edge(nodes["repeat_separation"], nodes["separate_sand_plastic"], layout)
         page_left = nodes["repeat_separation"].page_index * (layout.paper_width + layout.page_gap)
+        lane_width = (layout.paper_width - 72) / 3
+        lane_centers = {
+            round(page_left + 36 + lane_width * index + lane_width / 2, 1)
+            for index in range(3)
+        }
 
-        self.assertGreaterEqual(min(x for x, _y in points), page_left + 36)
+        self.assertTrue(all(round(node.x, 1) in lane_centers for node in layout.nodes))
+        self.assertGreaterEqual(min(x for x, _y in points), page_left + 100)
+
+        for lane_center in lane_centers:
+            lane_nodes = sorted(
+                [node for node in layout.nodes if round(node.x, 1) == lane_center],
+                key=lambda node: node.top,
+            )
+            for previous, current in zip(lane_nodes, lane_nodes[1:]):
+                self.assertLessEqual(previous.bottom, current.top)
 
     def test_a4_paper_graph_layout_wraps_imported_graph_ranks(self) -> None:
         nodes = [
