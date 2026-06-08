@@ -12,10 +12,8 @@ A4_LANDSCAPE = (842.0, 595.0)
 PAGE_MARGIN_X = 36.0
 PAGE_TOP_MARGIN = 58.0
 PAGE_BOTTOM_MARGIN = 42.0
-PRINT_TARGET_SCALE = 0.85
-MIN_READABLE_SCALE = 0.72
-VIEWPORT_OVERLAP = 80.0
 CHART_PADDING = 28.0
+MAX_STRIP_PAGE_SIZE = 14400.0
 
 
 @dataclass(frozen=True)
@@ -143,18 +141,19 @@ def create_print_plan(layout: FlowLayout, title: str = "Flowchart", subtitle: st
             viewports=[viewport],
         )
 
-    fit_whole_scale = min(1.0, content_width / bounds.width, content_height / bounds.height)
-    if fit_whole_scale >= MIN_READABLE_SCALE:
-        scale = fit_whole_scale
-    else:
-        cross_size = bounds.height if layout.direction.value == "LR" else bounds.width
-        content_cross = content_height if layout.direction.value == "LR" else content_width
-        cross_fit_scale = content_cross / cross_size if cross_size else 1.0
-        scale = min(PRINT_TARGET_SCALE, max(MIN_READABLE_SCALE, cross_fit_scale))
+    return _strip_print_plan(layout, title, subtitle, bounds)
 
-    viewport_width = content_width / scale
-    viewport_height = content_height / scale
-    viewports = _tile_viewports(bounds, viewport_width, viewport_height)
+
+def _strip_print_plan(layout: FlowLayout, title: str, subtitle: str, bounds: ChartBounds) -> PrintPlan:
+    base_width, base_height = _paper_size_for_layout(layout)
+    scale = _strip_scale(bounds)
+    page_width = max(base_width, bounds.width * scale + PAGE_MARGIN_X * 2)
+    page_height = max(base_height, bounds.height * scale + PAGE_TOP_MARGIN + PAGE_BOTTOM_MARGIN)
+    content_left = PAGE_MARGIN_X
+    content_top = page_height - PAGE_TOP_MARGIN
+    content_width = page_width - PAGE_MARGIN_X * 2
+    content_height = content_top - PAGE_BOTTOM_MARGIN
+    viewport = _centered_viewport(bounds, content_width / scale, content_height / scale)
     return PrintPlan(
         title=title,
         subtitle=subtitle,
@@ -166,7 +165,24 @@ def create_print_plan(layout: FlowLayout, title: str = "Flowchart", subtitle: st
         content_height=content_height,
         clip_bottom=PAGE_BOTTOM_MARGIN,
         scale=scale,
-        viewports=viewports,
+        viewports=[viewport],
+    )
+
+
+def _strip_scale(bounds: ChartBounds) -> float:
+    max_content_width = MAX_STRIP_PAGE_SIZE - PAGE_MARGIN_X * 2
+    max_content_height = MAX_STRIP_PAGE_SIZE - PAGE_TOP_MARGIN - PAGE_BOTTOM_MARGIN
+    return min(1.0, max_content_width / bounds.width, max_content_height / bounds.height)
+
+
+def _centered_viewport(bounds: ChartBounds, content_width: float, content_height: float) -> PrintViewport:
+    extra_x = max(0.0, content_width - bounds.width) / 2
+    extra_y = max(0.0, content_height - bounds.height) / 2
+    return PrintViewport(
+        left=bounds.left - extra_x,
+        top=bounds.top - extra_y,
+        right=bounds.right + extra_x,
+        bottom=bounds.bottom + extra_y,
     )
 
 
@@ -441,35 +457,6 @@ def _chart_bounds(layout: FlowLayout) -> ChartBounds:
         bottom = max(bottom, point_bounds.bottom)
 
     return ChartBounds(left - CHART_PADDING, top - CHART_PADDING, right + CHART_PADDING, bottom + CHART_PADDING)
-
-
-def _tile_viewports(bounds: ChartBounds, viewport_width: float, viewport_height: float) -> list[PrintViewport]:
-    x_windows = _axis_windows(bounds.left, bounds.right, viewport_width)
-    y_windows = _axis_windows(bounds.top, bounds.bottom, viewport_height)
-    return [
-        PrintViewport(left=x_left, top=y_top, right=x_right, bottom=y_bottom)
-        for y_top, y_bottom in y_windows
-        for x_left, x_right in x_windows
-    ]
-
-
-def _axis_windows(start: float, end: float, span: float) -> list[tuple[float, float]]:
-    size = max(1.0, end - start)
-    if size <= span:
-        extra = (span - size) / 2
-        return [(start - extra, end + extra)]
-
-    stride = max(span - VIEWPORT_OVERLAP, span * 0.65)
-    windows: list[tuple[float, float]] = []
-    current = start
-    while current + span < end:
-        windows.append((current, current + span))
-        current += stride
-
-    final_start = end - span
-    if not windows or abs(windows[-1][0] - final_start) > 1:
-        windows.append((final_start, end))
-    return windows
 
 
 def _node_bounds(node: NodeLayout) -> ChartBounds:

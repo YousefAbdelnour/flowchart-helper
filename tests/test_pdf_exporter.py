@@ -35,7 +35,7 @@ class PdfExportTests(unittest.TestCase):
         self.assertIn(b"Lab Flow", content)
         self.assertIn(b"Youssef | CHEM 205 | Density Lab", content)
 
-    def test_export_uses_standard_letter_landscape_pages_for_wide_layouts(self) -> None:
+    def test_export_uses_single_continuous_page_for_horizontal_strips(self) -> None:
         layout = build_flow_layout(
             [
                 Step(id=f"step-{index}", label=f"Step {index}", type=StepType.PROCESS)
@@ -49,24 +49,27 @@ class PdfExportTests(unittest.TestCase):
             export_flowchart_pdf(target, layout, title="Wide Flowchart")
             content = target.read_bytes()
 
-        self.assertIn(b"/MediaBox [0 0 842.00 595.00]", content)
-        self.assertGreater(content.count(b"/Type /Page /Parent"), 1)
-        self.assertNotIn(f"{layout.width + 90:.2f}".encode("ascii"), content)
+        plan = create_print_plan(layout, title="Wide Flowchart")
+        self.assertEqual(len(plan.viewports), 1)
+        self.assertEqual(plan.scale, 1.0)
+        self.assertGreater(plan.page_width, 842.0)
+        self.assertEqual(content.count(b"/Type /Page /Parent"), 1)
 
-    def test_print_plan_uses_portrait_pages_and_trims_blank_width_for_vertical_layouts(self) -> None:
+    def test_export_uses_single_continuous_page_for_vertical_strips(self) -> None:
         layout = build_flow_layout(
             [
                 Step(id=f"step-{index}", label=f"Step {index}", type=StepType.PROCESS)
-                for index in range(1, 18)
+                for index in range(1, 28)
             ],
             direction=FlowDirection.TOP_BOTTOM,
         )
 
         plan = create_print_plan(layout, title="Vertical Flowchart")
 
-        self.assertEqual((plan.page_width, plan.page_height), (595.0, 842.0))
-        self.assertGreater(len(plan.viewports), 1)
-        self.assertLess(plan.viewports[0].right - plan.viewports[0].left, layout.width)
+        self.assertEqual(len(plan.viewports), 1)
+        self.assertEqual(plan.scale, 1.0)
+        self.assertEqual(plan.page_width, 595.0)
+        self.assertGreater(plan.page_height, 842.0)
 
     def test_print_plan_uses_a4_page_boundaries_from_wrapped_layout(self) -> None:
         layout = build_a4_paper_flow_layout(
